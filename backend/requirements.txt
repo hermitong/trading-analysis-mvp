@@ -1,0 +1,19 @@
+# 核心依赖
+pandas>=2.1.0
+openpyxl>=3.1.0
+gspread>=5.12.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+APScheduler>=3.10.0
+python-dotenv>=1.0.0
+
+# 可选依赖（本地数据库和API服务）
+flask==3.0.0
+flask-cors==4.0.0
+
+# 实时行情（可选）
+yfinance==0.2.32
+
+# 日志和工具
+colorlog==6.8.0
+tqdm==4.66.1
