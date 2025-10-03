@@ -7,6 +7,9 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from pathlib import Path
 
+from app.database import TradeRecord
+from app.option_parser import parse_symbol
+
 logger = logging.getLogger(__name__)
 
 class ExcelParser:
@@ -18,6 +21,7 @@ class ExcelParser:
             '老虎证券': self._parse_tiger,
             '雪盈证券': self._parse_snowball,
             'Interactive Brokers': self._parse_ib,
+            '郑兄格式': self._parse_zheng_format,
             '通用': self._parse_generic
         }
 
@@ -65,6 +69,10 @@ class ExcelParser:
     def _identify_broker(self, df: pd.DataFrame) -> str:
         """根据Excel结构识别券商"""
         columns = set(df.columns.str.lower())
+
+        # 郑兄格式特征列
+        if {'代码', '开仓日期', '操作', '开单类型', '消息来源', '平仓理由', '交易评分'}.issubset(columns):
+            return '郑兄格式'
 
         # 富途证券特征列（新版本）
         if {'order status', 'symbol', 'direction', 'executed qty', 'avg price'}.issubset(columns):
@@ -290,6 +298,78 @@ class ExcelParser:
 
         return trades
 
+    def _parse_zheng_format(self, df: pd.DataFrame) -> List[Dict]:
+        """解析郑兄长期权策略格式"""
+        trades = []
+
+        for _, row in df.iterrows():
+            try:
+                # 基础字段
+                symbol = str(row['代码']).strip()
+                trade_date = self._parse_date(row.get('开仓日期', ''))
+                action = self._normalize_action(str(row.get('操作', '')))
+
+                # 跳过空行
+                if not symbol or not trade_date:
+                    continue
+
+                # 解析期权信息
+                strike_price = row.get('行权价', 0)
+                expiration_date = row.get('行权日', '')
+                option_type = row.get('开单类型', '')
+
+                # 使用期权解析器
+                option_info = parse_symbol(
+                    symbol,
+                    strike_price=strike_price,
+                    expiration_date=expiration_date,
+                    option_type=option_type
+                )
+
+                # 构建交易记录
+                trade_data = {
+                    'trade_date': trade_date,
+                    'trade_time': '00:00:00',  # 郑兄格式没有时间字段
+                    'symbol': symbol,
+                    'security_name': '',  # 郑兄格式没有证券名称
+                    'security_type': 'OPTION' if option_info.format_type != 'STOCK' else 'STOCK',
+                    'action': action,
+                    'quantity': self._parse_float(row.get('开仓数量', 0)),
+                    'price': self._parse_float(row.get('交易价格', 0)),
+                    'amount': self._parse_currency(row.get('占用资金', 0)),
+                    'commission': 0,  # 郑兄格式没有单独的手续费字段
+                    'net_amount': self._parse_currency(row.get('占用资金', 0)),
+
+                    # 期权字段
+                    'underlying_symbol': option_info.underlying_symbol if option_info.format_type != 'STOCK' else '',
+                    'strike_price': option_info.strike_price,
+                    'expiration_date': option_info.expiration_date,
+                    'option_type': option_info.option_type,
+
+                    # 扩展字段
+                    'source': str(row.get('消息来源', '')).strip(),
+                    'close_date': self._parse_date(row.get('平仓日期', '')) if pd.notna(row.get('平仓日期')) and row.get('平仓日期') != '' else '',
+                    'close_price': self._parse_float(row.get('平仓价格', 0)),
+                    'close_quantity': self._parse_float(row.get('平仓数量', 0)),
+                    'close_reason': str(row.get('平仓理由', '')).strip(),
+                    'trade_rating': self._parse_float(row.get('交易评分', 0)),
+                    'trade_type': str(row.get('交易类型', '')).strip(),
+                    'notes': str(row.get('笔记', '')).strip(),
+                    'account_id': '',
+                    'broker': '郑兄格式'
+                }
+
+                # 计算净金额
+                trade_data['net_amount'] = trade_data['amount'] + trade_data['commission']
+
+                trades.append(trade_data)
+
+            except Exception as e:
+                logger.warning(f"解析郑兄格式记录失败: {row}, 错误: {e}")
+                continue
+
+        return trades
+
     def _parse_generic(self, df: pd.DataFrame) -> List[Dict]:
         """通用解析器 - 尝试智能识别列名"""
         trades = []
@@ -436,6 +516,34 @@ class ExcelParser:
                 return 'STOCK'  # 深圳/创业板
 
         return 'UNKNOWN'
+
+    def _parse_currency(self, value) -> float:
+        """解析货币格式（如 $1,185.00）"""
+        if pd.isna(value):
+            return 0.0
+
+        if isinstance(value, str):
+            # 移除美元符号和逗号
+            cleaned = value.replace('$', '').replace(',', '').strip()
+            if not cleaned:
+                return 0.0
+            try:
+                return float(cleaned)
+            except ValueError:
+                logger.warning(f"无法解析货币格式: {value}")
+                return 0.0
+
+        return float(value) if value else 0.0
+
+    def _parse_float(self, value) -> float:
+        """解析浮点数"""
+        if pd.isna(value):
+            return 0.0
+
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
 
 
 class ParserException(Exception):
