@@ -14,8 +14,17 @@
 
 ## 🚀 快速开始
 
-### 安装（5分钟）
+### 🍎 Mac用户 - 一键启动（推荐）
 
+#### 方法1：双击启动
+1. 在Finder中找到 `启动系统.command` 文件
+2. **双击即可启动**完整系统！
+
+#### 方法2：双击应用包
+1. 找到 `TradingManager.app` 文件
+2. **双击运行**专业应用程序
+
+#### 方法3：传统方式
 1. **克隆项目**
    ```bash
    git clone https://github.com/hermitong/trading-analysis-mvp.git
@@ -38,6 +47,20 @@
 4. **访问应用**
    - 前端界面：http://localhost:5173
    - API服务器：http://localhost:5002
+
+### 📋 其他平台
+
+#### Linux/Windows用户
+```bash
+# 启动所有服务
+./start.sh
+
+# 检查系统状态
+./status.sh
+
+# 停止所有服务
+./stop.sh
+```
 
 ## 🎯 核心功能
 
